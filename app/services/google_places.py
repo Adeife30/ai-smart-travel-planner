@@ -10,14 +10,21 @@ BASE_DIR = Path(__file__).resolve().parents[2]
 ENV_PATH = BASE_DIR / ".env"
 load_dotenv(dotenv_path=ENV_PATH)
 
-print("DEBUG ENV PATH:", ENV_PATH)
-print("DEBUG GOOGLE KEY LOADED:", bool(os.getenv("GOOGLE_API_KEY")))
-
-
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 
 GEOCODE_URL = "https://maps.googleapis.com/maps/api/geocode/json"
 TEXT_SEARCH_URL = "https://maps.googleapis.com/maps/api/place/textsearch/json"
+
+INTEREST_MAP = {
+    "culture": ["museum", "art gallery", "cultural attractions"],
+    "history": ["historical landmarks", "churches", "heritage sites"],
+    "food": ["restaurants", "cafes", "local food"],
+    "nature": ["parks", "gardens", "scenic spots"],
+    "nightlife": ["bars", "night clubs", "live music venues"],
+    "shopping": ["shopping malls", "markets", "stores"],
+    "landmark": ["tourist attractions", "famous landmarks"],
+    "landmarks": ["tourist attractions", "famous landmarks"],
+}
 
 CATEGORY_MAP = {
     "museum": "culture",
@@ -29,6 +36,7 @@ CATEGORY_MAP = {
     "zoo": "nature",
     "shopping_mall": "shopping",
     "store": "shopping",
+    "market": "shopping",
     "restaurant": "food",
     "cafe": "food",
     "bakery": "food",
@@ -74,6 +82,7 @@ def _expand_interests(interests: list[str]) -> list[str]:
 
     seen = set()
     unique_terms = []
+
     for term in expanded:
         if term not in seen:
             seen.add(term)
@@ -102,22 +111,28 @@ def _search_places_for_term(destination: str, term: str) -> list[dict[str, Any]]
 
 
 def _infer_category(types: list[str], fallback_term: str) -> str:
-    type_set = set(types)
+    for place_type in types:
+        if place_type in CATEGORY_MAP:
+            return CATEGORY_MAP[place_type]
 
-    if "restaurant" in type_set or "cafe" in type_set:
-        return "food"
-    if "bar" in type_set or "night_club" in type_set:
-        return "nightlife"
-    if "shopping_mall" in type_set or "store" in type_set or "market" in type_set:
-        return "shopping"
-    if "museum" in type_set or "art_gallery" in type_set:
+    fallback = fallback_term.strip().lower()
+
+    if fallback in {"museum", "gallery", "art", "culture", "art gallery", "cultural attractions"}:
         return "culture"
-    if "park" in type_set or "garden" in type_set:
+    if fallback in {"history", "historic", "historical", "church", "churches", "heritage sites", "historical landmarks"}:
+        return "history"
+    if fallback in {"park", "nature", "garden", "gardens", "scenic spots"}:
         return "nature"
-    if "tourist_attraction" in type_set:
-        return "attraction"
+    if fallback in {"food", "restaurant", "restaurants", "cafe", "cafes", "bakery", "local food"}:
+        return "food"
+    if fallback in {"nightlife", "bar", "bars", "club", "night club", "night clubs", "live music", "live music venues"}:
+        return "nightlife"
+    if fallback in {"shopping", "mall", "shopping malls", "market", "markets", "store", "stores"}:
+        return "shopping"
+    if fallback in {"landmark", "landmarks", "attraction", "tourist attraction", "tourist attractions", "famous landmarks"}:
+        return "landmark"
 
-    return fallback_term.lower()
+    return "general"
 
 
 def _normalise_place(place: dict[str, Any], fallback_term: str) -> dict[str, Any] | None:
@@ -131,53 +146,127 @@ def _normalise_place(place: dict[str, Any], fallback_term: str) -> dict[str, Any
         return None
 
     types = place.get("types", [])
+    category = _infer_category(types, fallback_term)
 
     return {
         "place_id": place_id,
         "name": name,
-        "category": _infer_category(types, fallback_term),
+        "category": category,
         "address": place.get("formatted_address", ""),
         "lat": lat,
         "lng": lng,
-        "rating": place.get("rating"),
-        "user_ratings_total": place.get("user_ratings_total"),
+        "rating": place.get("rating") or 0,
+        "user_ratings_total": place.get("user_ratings_total") or 0,
         "types": types,
     }
+
+
+def _map_interest_to_category(interest: str) -> str:
+    mapped = interest.strip().lower()
+
+    if mapped in {"museum", "gallery", "art", "culture", "art gallery", "cultural attractions"}:
+        return "culture"
+    if mapped in {"history", "historic", "historical", "church", "churches", "heritage sites", "historical landmarks"}:
+        return "history"
+    if mapped in {"park", "nature", "garden", "gardens", "scenic spots"}:
+        return "nature"
+    if mapped in {"food", "restaurant", "restaurants", "cafe", "cafes", "bakery", "local food"}:
+        return "food"
+    if mapped in {"nightlife", "bar", "bars", "club", "night club", "night clubs", "live music", "live music venues"}:
+        return "nightlife"
+    if mapped in {"shopping", "mall", "shopping malls", "market", "markets", "store", "stores"}:
+        return "shopping"
+    if mapped in {"landmark", "landmarks", "attraction", "tourist attraction", "tourist attractions", "famous landmarks"}:
+        return "landmark"
+
+    return "general"
 
 
 def _balance_candidate_places(
     candidate_places: list[dict[str, Any]],
     interests: list[str],
     max_total: int = 20,
-    per_category_limit: int = 5,
+    per_category_limit: int = 4,
 ) -> list[dict[str, Any]]:
     grouped = defaultdict(list)
 
     for place in candidate_places:
         grouped[place["category"]].append(place)
 
-    balanced: list[dict[str, Any]] = []
+    for category in grouped:
+        grouped[category] = sorted(
+            grouped[category],
+            key=lambda p: (
+                p.get("rating", 0),
+                p.get("user_ratings_total", 0),
+            ),
+            reverse=True,
+        )
 
+    interest_priority = []
     for interest in interests:
-        category = interest.lower()
-        if category in grouped:
-            balanced.extend(grouped[category][:per_category_limit])
+        mapped_category = _map_interest_to_category(interest)
+        if mapped_category not in interest_priority:
+            interest_priority.append(mapped_category)
+
+    fallback_order = [
+        "landmark",
+        "culture",
+        "history",
+        "nature",
+        "food",
+        "shopping",
+        "nightlife",
+        "general",
+    ]
+
+    ordered_categories = interest_priority + [
+        category for category in fallback_order if category not in interest_priority
+    ]
+
+    balanced: list[dict[str, Any]] = []
+    seen_place_ids = set()
+
+    for category in ordered_categories:
+        if category not in grouped:
+            continue
+
+        added_for_category = 0
+        for place in grouped[category]:
+            if place["place_id"] in seen_place_ids:
+                continue
+
+            balanced.append(place)
+            seen_place_ids.add(place["place_id"])
+            added_for_category += 1
+
+            if added_for_category >= per_category_limit:
+                break
+
+            if len(balanced) >= max_total:
+                return balanced
 
     if len(balanced) < max_total:
-        for extra_category in ["culture", "nature", "shopping", "food", "nightlife", "attraction"]:
-            if extra_category not in [i.lower() for i in interests] and extra_category in grouped:
-                balanced.extend(grouped[extra_category][:per_category_limit])
+        remaining_places = sorted(
+            candidate_places,
+            key=lambda p: (
+                p.get("rating", 0),
+                p.get("user_ratings_total", 0),
+            ),
+            reverse=True,
+        )
+
+        for place in remaining_places:
+            if place["place_id"] in seen_place_ids:
+                continue
+
+            balanced.append(place)
+            seen_place_ids.add(place["place_id"])
+
             if len(balanced) >= max_total:
                 break
 
-    seen = set()
-    unique_balanced = []
-    for place in balanced:
-        if place["place_id"] not in seen:
-            seen.add(place["place_id"])
-            unique_balanced.append(place)
-
-    return unique_balanced[:max_total]
+    return balanced
 
 
 def get_candidate_places(request_data: dict[str, Any]) -> list[dict[str, Any]]:
