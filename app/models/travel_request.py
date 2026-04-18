@@ -1,8 +1,11 @@
 from pydantic import BaseModel
-from typing import List
+from typing import List, Optional
+
 
 class TravelRequest(BaseModel):
     destination: str
-    interests: List[str]
-    budget: str
     days: int
+    budget: Optional[str] = None
+    interests: List[str]
+    transport_mode: Optional[str] = None
+    trip_style: Optional[str] = None

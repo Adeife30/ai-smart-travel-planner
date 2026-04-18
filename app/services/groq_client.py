@@ -1,34 +1,20 @@
+from openai import OpenAI
 import os
 from dotenv import load_dotenv
-from groq import Groq
 
 load_dotenv()
 
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-client = Groq(api_key=GROQ_API_KEY)
+client = OpenAI(
+    api_key=os.getenv("GROQ_API_KEY"),
+    base_url="https://api.groq.com/openai/v1"
+)
 
-
-def generate_itinerary_with_groq(prompt: str) -> str:
+def generate_with_groq(messages):
     response = client.chat.completions.create(
         model="llama-3.1-8b-instant",
-        messages=[
-            {
-                "role": "system",
-                "content": (
-                    "You are a travel itinerary generator. "
-                    "You must return ONLY valid JSON. "
-                    "Do not include markdown fences. "
-                    "Do not include explanations. "
-                    "Do not include any text before or after the JSON."
-                )
-            },
-            {
-                "role": "user",
-                "content": prompt
-            }
-        ],
         temperature=0,
-        max_completion_tokens=800
+        response_format={"type": "json_object"},
+        messages=messages
     )
 
-    return response.choices[0].message.content.strip()
+    return response.choices[0].message.content
