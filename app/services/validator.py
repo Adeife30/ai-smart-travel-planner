@@ -22,8 +22,8 @@ def validate_json_output(raw_output: str):
     if not isinstance(data["days"], list):
         raise ValueError("Field 'days' must be a list")
 
-    if "notes" not in data or not isinstance(data["notes"], str):
-        raise ValueError("Missing or invalid 'notes' field in LLM output")
+    if "notes" in data and not isinstance(data["notes"], str):
+        raise ValueError("If provided, 'notes' must be a string")
 
     for day in data["days"]:
         if not isinstance(day, dict):
@@ -35,8 +35,8 @@ def validate_json_output(raw_output: str):
         if not isinstance(day["day_number"], int):
             raise ValueError("'day_number' must be an integer")
 
-        if "theme" not in day or not isinstance(day["theme"], str):
-            raise ValueError("Each day must include a string 'theme'")
+        if "theme" in day and not isinstance(day["theme"], str):
+            raise ValueError("If provided, 'theme' must be a string")
 
         if "activities" not in day:
             raise ValueError("Each day must include 'activities'")
@@ -48,7 +48,7 @@ def validate_json_output(raw_output: str):
             if not isinstance(activity, dict):
                 raise ValueError("Each activity must be an object")
 
-            required_fields = ["time", "name", "ref", "place_id", "category", "rationale"]
+            required_fields = ["time", "ref", "rationale"]
             for field in required_fields:
                 if field not in activity:
                     raise ValueError(f"Missing required activity field: {field}")
@@ -56,17 +56,8 @@ def validate_json_output(raw_output: str):
             if not isinstance(activity["time"], str):
                 raise ValueError("Activity 'time' must be a string")
 
-            if not isinstance(activity["name"], str):
-                raise ValueError("Activity 'name' must be a string")
-
             if not isinstance(activity["ref"], str):
                 raise ValueError("Activity 'ref' must be a string")
-
-            if not isinstance(activity["place_id"], str):
-                raise ValueError("Activity 'place_id' must be a string")
-
-            if not isinstance(activity["category"], str):
-                raise ValueError("Activity 'category' must be a string")
 
             if not isinstance(activity["rationale"], str):
                 raise ValueError("Activity 'rationale' must be a string")
@@ -75,15 +66,8 @@ def validate_json_output(raw_output: str):
 
 
 def validate_refs(itinerary_data, candidate_places):
-    enriched_places = []
-
-    for index, place in enumerate(candidate_places, start=1):
-        enriched_place = dict(place)
-        enriched_place["ref"] = f"P{index}"
-        enriched_places.append(enriched_place)
-
-    valid_refs = {place["ref"] for place in enriched_places}
-    candidate_lookup = {place["ref"]: place for place in enriched_places}
+    valid_refs = {place["ref"] for place in candidate_places}
+    candidate_lookup = {place["ref"]: place for place in candidate_places}
 
     used_refs = set()
 
@@ -92,9 +76,6 @@ def validate_refs(itinerary_data, candidate_places):
 
         for activity in day.get("activities", []):
             ref = activity.get("ref")
-            name = activity.get("name")
-            place_id = activity.get("place_id")
-            category = activity.get("category")
 
             if ref not in valid_refs:
                 raise ValueError(f"Invalid ref found: {ref}")
@@ -104,23 +85,6 @@ def validate_refs(itinerary_data, candidate_places):
 
             if ref in used_refs:
                 raise ValueError(f"Duplicate ref found across itinerary: {ref}")
-
-            expected_place = candidate_lookup[ref]
-
-            if name != expected_place["name"]:
-                raise ValueError(
-                    f"Name does not match ref {ref}. Expected '{expected_place['name']}', got '{name}'"
-                )
-
-            if place_id != expected_place["place_id"]:
-                raise ValueError(
-                    f"place_id does not match ref {ref}. Expected '{expected_place['place_id']}', got '{place_id}'"
-                )
-
-            if category != expected_place["category"]:
-                raise ValueError(
-                    f"Category does not match ref {ref}. Expected '{expected_place['category']}', got '{category}'"
-                )
 
             day_refs.add(ref)
             used_refs.add(ref)
@@ -181,4 +145,3 @@ def validate_activity_structure(itinerary_data: dict, request_data: dict):
             )
 
     return True
-

@@ -1,152 +1,132 @@
 import json
 
 
-def build_itinerary_messages(trip_input: dict, candidate_places: list):
-    llm_trip_input = {
-        "destination": trip_input.get("destination"),
-        "trip_days": trip_input.get("days"),
-        "budget": trip_input.get("budget"),
-        "interests": trip_input.get("interests"),
-        "transport_mode": trip_input.get("transport_mode"),
-        "trip_style": trip_input.get("trip_style"),
-    }
-
-    enriched_places = []
-    for index, place in enumerate(candidate_places, start=1):
-        ref = f"P{index}"
-        enriched_places.append({
-            "ref": ref,
-            "place_id": place["place_id"],
-            "name": place["name"],
-            "category": place["category"],
-            "address": place.get("address", "")
-        })
+def build_itinerary_messages(request_data, candidate_places):
+    destination = request_data.get("destination")
+    trip_days = request_data.get("days") or request_data.get("trip_days")
+    budget = request_data.get("budget")
+    interests = request_data.get("interests", [])
 
     system_prompt = """
 You are the itinerary engine for an AI Smart Travel Planner.
 
-Return ONLY one valid JSON object.
-Do not return markdown.
-Do not return explanations.
-Do not return any text outside the JSON object.
+Return ONLY a valid JSON object.
 
-Core rules:
-- Use ONLY the candidate places provided
+Rules:
+- Do not include markdown
+- Do not include explanations
+- Use only the candidate places provided
 - Never invent locations
 - Never invent refs
-- Never invent place_ids
-- Every ref must exactly match a candidate ref
-- Every place_id must exactly match a candidate place_id
-- Every name must exactly match the candidate place name
-- Do not rename, paraphrase, shorten, or alter place names
-- Do not repeat the same ref anywhere in the itinerary unless candidate options are extremely limited
+- Every ref must exactly match one from the candidate list
+- Do not return place_id directly as the main selection field
+- Select places using the provided refs only
 
-Trip quality rules:
-- Create exactly 4 activities per day
-- Spread activities realistically across the day using these exact times:
-  - 08:00
-  - 11:00
-  - 14:00
-  - 19:00
-- Keep the day realistic:
-  - morning activity at 08:00
-  - late morning activity at 11:00
-  - afternoon activity at 14:00
-  - evening activity at 19:00
-- Nightlife should only appear in the evening where appropriate
-- Food places should fit lunch or evening where appropriate
-- Avoid repeating the same category too often on the same day
-- Avoid two consecutive activities from the same category unless necessary
-- Prefer variety across the trip
-- Make each rationale match the actual place selected
-- Keep rationales short, natural, and specific
-- Keep each rationale under 18 words
-- Do not schedule two consecutive activities from the same high-level category unless necessary.
+CRITICAL:
+- Plan the itinerary as a realistic day, not just a random list of places
+- Spread activities across the day in a sensible order
+- Start with morning-friendly activities, continue with daytime activities, and end with evening-friendly activities
+- Ensure each day includes a balanced mix of categories where possible
+- Avoid repeating the same category consecutively
+- Avoid using the same category more than twice in one day unless there are limited options
+- Do not repeat the same ref or place anywhere in the itinerary
+- Prefer variety across the full trip, not just within one day
+- Match the rationale clearly to the selected place, category, and user interests
+- Keep rationales short, specific, and relevant
+- Do not use generic rationales like "Good match for the user's interests"
 
-Rationale guidance:
-- For culture/history places, mention art, heritage, architecture, or significance if appropriate.
-- For food places, mention meal timing, local cuisine, or a good break in the day.
-- For nature places, mention views, walking, green space, or a relaxed pace.
-- For nightlife places, mention evening atmosphere, drinks, music, or social energy.
-- Keep each rationale under 18 words.
+TIME-TO-CATEGORY GUIDANCE:
+- Morning: culture, history, attraction, sightseeing
+- Midday: food, markets, casual attractions
+- Afternoon: culture, shopping, attractions
+- Evening: food, nightlife, scenic attractions
 
-Schema rules:
+IMPORTANT OUTPUT SCHEMA:
 - "destination" must be a string
-- "days" must be an array
-- Output exactly the requested number of day objects
-- Each day object must contain:
+- "days" must be an ARRAY of day objects
+- Do NOT return "days" as a number
+- each item in "days" must contain:
   - "day_number"
-  - "theme"
   - "activities"
-- "activities" must be an array of exactly 4 activity objects
-- Each activity object must contain:
+- each activity must contain:
   - "time"
-  - "name"
   - "ref"
-  - "place_id"
-  - "category"
   - "rationale"
-- "notes" must be a short string
+- Do not include "name" in the activity output
+- Do not include "place_id" in the activity output
+- Do not include "category" in the activity output unless explicitly required elsewhere
 
-Required JSON structure:
+ACTIVITY RULES:
+- Generate 4 activities per day where possible
+- Use realistic times such as 08:00, 11:00, 14:00, 19:00
+- Include a good spread of categories based on the user's interests and available candidates
+- If food is included, place it at sensible meal times where possible
+- If nightlife is included, place it later in the day
+- If culture, history, or attractions are included, prefer morning or afternoon
+- Do not select places in a way that makes the day feel repetitive
+
+RATIONALE RULES:
+- Each rationale must mention something specific about the place type or why it fits that part of the day
+- Keep each rationale to one short sentence
+
+Example structure:
 {
-  "destination": "City name",
+  "destination": "Sweden",
   "days": [
     {
       "day_number": 1,
-      "theme": "Short theme for the day",
       "activities": [
         {
           "time": "08:00",
-          "name": "Exact candidate place name",
-          "ref": "Exact candidate ref",
-          "place_id": "Exact candidate place_id",
-          "category": "Exact candidate category",
-          "rationale": "Short place-specific reason"
+          "ref": "P1",
+          "rationale": "A strong morning cultural stop with local historical interest."
         },
         {
           "time": "11:00",
-          "name": "Exact candidate place name",
-          "ref": "Exact candidate ref",
-          "place_id": "Exact candidate place_id",
-          "category": "Exact candidate category",
-          "rationale": "Short place-specific reason"
+          "ref": "P2",
+          "rationale": "A suitable lunch stop for trying local food."
         },
         {
           "time": "14:00",
-          "name": "Exact candidate place name",
-          "ref": "Exact candidate ref",
-          "place_id": "Exact candidate place_id",
-          "category": "Exact candidate category",
-          "rationale": "Short place-specific reason"
+          "ref": "P3",
+          "rationale": "A good afternoon visit for sightseeing and local exploration."
         },
         {
           "time": "19:00",
-          "name": "Exact candidate place name",
-          "ref": "Exact candidate ref",
-          "place_id": "Exact candidate place_id",
-          "category": "Exact candidate category",
-          "rationale": "Short place-specific reason"
+          "ref": "P4",
+          "rationale": "A strong evening choice for food or nightlife."
         }
       ]
     }
   ],
-  "notes": "Short summary note"
+  "notes": "Short note here"
 }
-
-CRITICAL:
-- place_id values are case-sensitive
-- ref values are case-sensitive
-- Copy values exactly from the candidate list
-- A single wrong character makes the output invalid
 """.strip()
 
-    user_prompt = f"""
-Trip input:
-{json.dumps(llm_trip_input, indent=2)}
+    trip_input = {
+        "destination": destination,
+        "trip_days": trip_days,
+        "budget": budget,
+        "interests": interests,
+        "transport_mode": request_data.get("transport_mode"),
+        "trip_style": request_data.get("trip_style"),
+    }
+
+    slim_places = [
+        {
+            "ref": place.get("ref"),
+            "name": place.get("name"),
+            "category": place.get("category"),
+            "address": place.get("address"),
+        }
+        for place in candidate_places
+    ]
+
+    user_prompt = f"""Trip input:
+{json.dumps(trip_input, indent=2)}
 
 Candidate places:
-{json.dumps(enriched_places, indent=2)}
+{json.dumps(slim_places, indent=2, ensure_ascii=False)}
 """.strip()
 
     return [

@@ -43,6 +43,7 @@ function App() {
         setError("Please enter a destination.");
         return;
       }
+
       if (!days || parseInt(days, 10) < 1) {
         setError("Please enter a valid number of days.");
         return;
@@ -239,6 +240,20 @@ function App() {
     </>
   );
 
+  const renderTravelInfo = (activity, index, totalActivities) => {
+    if (index === totalActivities - 1 || !activity.travel_to_next) {
+      return null;
+    }
+
+    return (
+      <div className="travel-info">
+        <span className="travel-label">Travel to next:</span>{" "}
+        <span>{activity.travel_to_next.distance}</span> ·{" "}
+        <span>{activity.travel_to_next.duration}</span>
+      </div>
+    );
+  };
+
   const renderItinerary = () => {
     if (!result) return null;
 
@@ -249,35 +264,44 @@ function App() {
         {result.days.map((dayObj) => (
           <div key={dayObj.day_number} className="day-card">
             <h3>Day {dayObj.day_number}</h3>
+            {dayObj.theme && <p className="day-theme">{dayObj.theme}</p>}
 
             {dayObj.activities.map((activity, index) => (
-              <div
-                key={`${dayObj.day_number}-${index}`}
-                className={`activity-row ${
-                  index === dayObj.activities.length - 1 ? "no-border" : ""
-                }`}
-              >
-                <strong>{activity.time}</strong> — {activity.name}
+              <React.Fragment key={`${dayObj.day_number}-${index}`}>
+                <div
+                  className={`activity-row ${
+                    index === dayObj.activities.length - 1 ? "no-border" : ""
+                  }`}
+                >
+                  <strong>{activity.time}</strong> — {activity.name}
 
-                <div className="activity-meta">
-                  <div>
-                    <strong>Category:</strong> {activity.category}
-                  </div>
-                  <div>
-                    <strong>Reason:</strong> {activity.rationale}
-                  </div>
-                  <div className="map-link-wrap">
-                    <a
-                      href={`https://www.google.com/maps/search/?api=1&query=Google&query_place_id=${activity.place_id}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="map-link"
-                    >
-                      View on Google Maps
-                    </a>
+                  <div className="activity-meta">
+                    <div>
+                      <strong>Category:</strong> {activity.category}
+                    </div>
+                    <div>
+                      <strong>Reason:</strong> {activity.rationale}
+                    </div>
+                    {activity.address && (
+                      <div>
+                        <strong>Address:</strong> {activity.address}
+                      </div>
+                    )}
+                    <div className="map-link-wrap">
+                      <a
+                        href={activity.maps_link || `https://www.google.com/maps/search/?api=1&query=Google&query_place_id=${activity.place_id}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="map-link"
+                      >
+                        View on Google Maps
+                      </a>
+                    </div>
                   </div>
                 </div>
-              </div>
+
+                {renderTravelInfo(activity, index, dayObj.activities.length)}
+              </React.Fragment>
             ))}
           </div>
         ))}
